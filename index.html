@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html>
+    <head>
+    	<meta charset="UTF-8">
+    	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>IntMail</title>
+        <script src="scripts/snowball.js" type="text/javascript"></script>
+        <script src="scripts/tokenizer.js" type="text/javascript"></script>
+        <script src="scripts/bayes.js" type="text/javascript"></script>
+        <script src="scripts/data.js" type="text/javascript"></script>
+        <script src="scripts/intmail.js" type="text/javascript"></script>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.2.1/jquery.min.js"></script>
+        <link href="https://fonts.googleapis.com/css?family=Comfortaa|Poiret+One|Vollkorn+SC" rel="stylesheet">
+        <link href="https://fonts.googleapis.com/css?family=Josefin+Slab|Lora|Rasa" rel="stylesheet">
+        <link rel="stylesheet" type="text/css" href="css/styles.css">
+    </head>
+    <body>
+    	<div class="bg"></div>
+    	<div class="content">
+    		<div class="padded">
+	        	<h1>IntMail</h1>
+		        <p>IntMail analyserer og videresender automatisk alle de mails I modtager til den rette afdeling eller kundeservicerepræsentant.<br>Send en mail til <span class="orange">kontakt@ambolt.io</span> for at høre hvordan IntMail kan hjælpe netop din virksomhed.
+		        </p>
+		        <h2>Demo</h2>
+		        <p>Lad som om at du er ved at skrive en mail til en internetudbyder angående<br><span class="green">bestilling</span>, <span class="red">opsigelse</span> eller spørgsmål til din <span class="blue">regning</span>.<br>
+		        IntMail finder ud af hvor din mail skal sendes hen.</p>
+		        <div class="demo">
+		        	<button id="test-mail-button">Ny test mail</button>
+		        	<div id="input_container">
+		        		<div id="text_overlay"></div>
+		        		<textarea id="mail_input" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">Hej, hvorfor er der et gebyr på 25 kr på faktura nummer 382534?
+Jeg har ikke betalt til tiden sidste måned, er det derfor?
+Mvh Lars</textarea>
+		        	</div> 
+			        <div id="decision">
+			        	Din mail skal sendes til den afdeling, der håndterer <span id="predicted_category" class="blue">regning</span>.
+			    	</div>
+			        <img src="images/people.png" class="people-wrap">
+		    	</div>
+	    	</div>
+			<img src="images/people.png" class="people-bottom">
+    	</div>
+
+
+	    <script type="text/javascript">
+	    	var text_overlay_html = "";
+	    	var stemmer = new Stemmer("Danish");
+			var preprocessor = new PreProcessor(stemmer);
+			var classifier = trainClassifier(preprocessor);
+			var class_colors = {
+				"bestilling": {red: 0, green: 255, blue: 0},
+				"opsigelse": {red: 255, green: 0, blue: 0},
+				"regning": {red: 0, green: 0, blue: 255}
+			};
+			var class_color_names = {
+				"bestilling": "green",
+				"opsigelse": "red",
+				"regning": "blue"
+			};
+			//evaluateClassifier(docs_by_class, preprocessor);
+
+			function predict(str) {
+				var tokens = preprocessor.createTokens(str);
+				var token_values = tokens.map(function(token){return token.val});
+				return classifier.classify(token_values);
+			}
+
+			function getColorOfWord(word) {
+				var tokens = preprocessor.createTokens(word);
+				var token_values = tokens.map(function(token){return token.val});
+				var probs = classifier.getProbabilities(token_values);
+				var colors_with_intensities = getColorsFromProbs(probs);
+				return mix_colors(colors_with_intensities);
+			}
+
+			function mix_colors(colors) {
+				var red = 0;
+				var green = 0;
+				var blue = 0;
+				for (var i = 0; i < colors.length; i++) {
+					red += colors[i].color.red * colors[i].value;
+					green += colors[i].color.green * colors[i].value;
+					blue += colors[i].color.blue * colors[i].value;
+				}
+				var color = {
+					red: red / colors.length,
+					green: green / colors.length,
+					blue: blue / colors.length
+				}
+				return normalize_color(color);
+			}
+
+			function normalize_color(color) {
+				var sum = color.red + color.green + color.blue;
+				return {
+					red: color.red / sum * 255,
+					green: color.green / sum * 255,
+					blue: color.blue / sum * 255
+				};
+			}
+
+			function getColorsFromProbs(probs){
+				var color_intensities = probs.map(function(x){return {color: class_colors[x.label], value: x.value}});
+				var sum = 0;
+				for (var i = 0; i < color_intensities.length; i++) {
+					sum += color_intensities[i].value;
+				}
+				var normalized_color_intensities = color_intensities.map(function(x){return {color: x.color, value: x.value / sum}});
+				return normalized_color_intensities;
+			}
+
+			function color_text(mail_input){
+				var html = mail_input;
+
+				var re = /[a-zA-Z0-9\xc6\xc5\xd8\xe5\xe6\xf8]+/g;
+				var m;
+
+				var matches = [];
+
+				do {
+				    m = re.exec(mail_input);
+				    if (m) {
+				        matches.push(m);
+				    }
+				} while (m);
+
+				for (var i = matches.length - 1; i >= 0; i--){
+					var word = matches[i][0];
+					var index = matches[i].index;
+			        var color = getColorOfWord(word);
+			        var color_css_str = get_css_color(color);
+			        var colored_word_html = "<span style='color:" + color_css_str + "'>" + word + "</span>";
+			        var len = word.length;
+			        html = html.substring(0, index) + colored_word_html +  html.substring(index + len, html.length);
+				}
+				$("#text_overlay").html(html);
+			}
+
+			function get_css_color(color){
+				return "rgb(" + Math.floor(color.red) + ", " + Math.floor(color.green) + ", " + Math.floor(color.blue) + ")";
+			}
+
+			function mail_inputted(mail_input) {
+    			if ($.trim(mail_input).length < 2){
+    				$("#decision").hide();
+    			} else {
+    				$("#decision").show();
+    			}
+				
+				var prediction = predict(mail_input);
+				var color = class_colors[prediction];
+				var color_name = class_color_names[prediction];
+				color_text(mail_input);
+				$("#predicted_category").html(prediction);
+				$("#predicted_category").removeClass().addClass(color_name);
+			}
+			function get_random_mail(){
+				var mails = [];
+				mails = mails.concat(docs_by_class["bestilling"]);
+				mails = mails.concat(docs_by_class["opsigelse"]);
+				mails = mails.concat(docs_by_class["regning"]);
+				return mails[Math.floor(Math.random()*mails.length)];
+			}
+
+	    	$(document).ready(function(){
+
+				mail_inputted($("#mail_input").val());
+
+	    		$("#mail_input").on('propertychange change click keyup input paste', function() {
+	    			mail_inputted($(this).val());
+				});
+
+				$("#test-mail-button").click(function(){
+					var new_mail = get_random_mail();
+					$("#mail_input").val(new_mail);
+					mail_inputted(new_mail);
+				});
+
+	    		$("#mail_input, #text_overlay").on('propertychange change click keyup input paste scroll', function() {
+					$("#text_overlay").scrollTop($("#mail_input").scrollTop())
+				});
+	    	});
+        </script>
+    </body>
+</html>
